@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import useJobStore from "@/store/useJobStore";
 import axios from "@/lib/axios";
 import { useState, useRef, useEffect } from "react";
-import { getHighlightedHTML } from "@/lib/highlightUtil"; // Create this file
+import { getHighlightedHTML } from "@/lib/highlightUtil";
+import { useDebounce } from "use-debounce";
 
 export default function InputBlock() {
   const {
@@ -15,15 +16,19 @@ export default function InputBlock() {
     setLoading,
     isLoading,
     ignoredSuggestions,
+    acceptedSuggestions,
+    liveMode,
   } = useJobStore();
 
   const [charCount, setCharCount] = useState(jobText.length || 0);
+  const [debouncedText] = useDebounce(jobText, 1000);
   const editableRef = useRef(null);
+  const isTypingRef = useRef(false);
 
-  const handleAnalyze = async () => {
+  const analyzeText = async (textToAnalyze) => {
     try {
       setLoading(true);
-      const res = await axios.post("/analyze", { text: jobText });
+      const res = await axios.post("/analyze", { text: textToAnalyze });
 
       const { bias, score, suggestions } = res.data;
 
@@ -53,6 +58,8 @@ export default function InputBlock() {
     }
   };
 
+  const handleAnalyze = () => analyzeText(jobText);
+
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -67,41 +74,68 @@ export default function InputBlock() {
     if (file.type === "text/plain") {
       reader.readAsText(file);
     } else {
-      alert("Only .txt files supported in this version.");
+      alert("Only .txt files supported.");
     }
   };
 
   useEffect(() => {
-    // Keep char count in sync when text updates from external sources
     setCharCount(jobText.length);
   }, [jobText]);
 
+  // Live analyze mode
+  useEffect(() => {
+    if (liveMode && debouncedText.length > 10) {
+      analyzeText(debouncedText);
+    }
+  }, [debouncedText, liveMode]);
+
+  // Highlight only when not typing
+  useEffect(() => {
+    const el = editableRef.current;
+    if (!el || isTypingRef.current) return;
+
+    const scrollY = window.scrollY;
+
+    const cursorToEnd = () => {
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    };
+
+    el.innerHTML = getHighlightedHTML(
+      jobText,
+      result?.keywords || [],
+      ignoredSuggestions,
+      acceptedSuggestions
+    );
+
+    cursorToEnd();
+    window.scrollTo(0, scrollY);
+  }, [result, ignoredSuggestions, acceptedSuggestions]);
+
   return (
     <div className="border bg-card rounded-xl p-4 space-y-4">
-      <Label
-        htmlFor="job-description"
-        className="text-lg font-medium flex items-center gap-2"
-      >
+      <Label className="text-lg font-medium flex items-center gap-2">
         📝 Job Description Input
       </Label>
 
-      {/* Editable Div */}
       <div
         ref={editableRef}
         contentEditable
         suppressContentEditableWarning
+        className="whitespace-pre-wrap rounded-md border border-input bg-background p-3 text-sm font-mono focus:outline-none focus:ring-2 ring-ring min-h-[180px] max-h-[500px] overflow-y-auto"
         onInput={(e) => {
+          isTypingRef.current = true;
           const text = e.currentTarget.innerText;
           setJobText(text);
           setCharCount(text.length);
-        }}
-        className="whitespace-pre-wrap rounded-md border border-input bg-background p-3 text-sm font-mono focus:outline-none focus:ring-2 ring-ring min-h-[180px] max-h-[500px] overflow-y-auto"
-        dangerouslySetInnerHTML={{
-          __html: getHighlightedHTML(
-            jobText,
-            result?.keywords || [],
-            ignoredSuggestions
-          ),
+          setTimeout(() => {
+            isTypingRef.current = false;
+          }, 300);
         }}
       />
 
@@ -116,7 +150,7 @@ export default function InputBlock() {
             className="w-auto cursor-pointer"
           />
           <span className="text-xs text-muted-foreground">
-            Supported formats: PDF, DOCX, TXT (Max 10MB)
+            Supported formats: TXT only (Max 10MB)
           </span>
         </div>
         <Button onClick={handleAnalyze} disabled={isLoading}>
