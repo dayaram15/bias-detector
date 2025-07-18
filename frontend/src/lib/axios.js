@@ -2,11 +2,11 @@
 import axios from "axios";
 
 const axiosInstance = axios.create({
-  baseURL: "http://localhost:5000/api", // Change to your API base path
+  baseURL: "http://localhost:5000",
   headers: {
     "Content-Type": "application/json",
   },
-  withCredentials: true, // optional: use this if you're using cookies or auth
+  withCredentials: true, // 👈 only if your backend uses cookies or auth sessions
 });
 
 export default axiosInstance;
